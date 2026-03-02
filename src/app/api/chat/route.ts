@@ -1,11 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-import { openai } from "@ai-sdk/openai";
-import { streamText, Message } from "ai";
+import { OpenAIStream, StreamingTextResponse } from "ai";
 import OpenAI from "openai";
 
-// Standard OpenAI client just for embeddings 
-// (Vercel ai-sdk handles the chat stream natively)
-const openaiCore = new OpenAI({
+// Standard OpenAI client
+const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
@@ -26,7 +24,7 @@ export async function POST(req: Request) {
             // 1. Generate Embedding for the user's question
             let queryEmbedding: number[] = [];
             try {
-                const embeddingResponse = await openaiCore.embeddings.create({
+                const embeddingResponse = await openai.embeddings.create({
                     model: "text-embedding-3-small",
                     input: lastMessage.content,
                     dimensions: 1536
@@ -71,14 +69,18 @@ CONTEXTO DE TUS MANUALES (NEXIA EDU):
 ${dbContext ? dbContext : "No se encontró contexto específico para esta consulta en los manuales, pero confía en tu conocimiento general Lean."}
 `;
 
-        // 4. Stream the response using Vercel AI SDK
-        const result = streamText({
-            model: openai('gpt-4o-mini'),
-            system: systemPrompt,
-            messages: messages,
+        // 4. Stream the response using classic OpenAI + Vercel AI v3 OpenAStream
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            stream: true,
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...messages,
+            ],
         });
 
-        return result.toDataStreamResponse();
+        const stream = OpenAIStream(response);
+        return new StreamingTextResponse(stream);
 
     } catch (e: any) {
         console.error("Chat API Error:", e);

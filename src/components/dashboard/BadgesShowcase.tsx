@@ -15,6 +15,7 @@ interface BadgeData {
 export function BadgesShowcase({ userId }: { userId: string }) {
     const [badges, setBadges] = useState<BadgeData[]>([]);
     const [loading, setLoading] = useState(true);
+    const [showAll, setShowAll] = useState(false);
 
     useEffect(() => {
         async function loadBadges() {
@@ -82,27 +83,27 @@ export function BadgesShowcase({ userId }: { userId: string }) {
         switch (level) {
             case "gold":
                 return {
-                    bg: "bg-gradient-to-br from-yellow-300 via-yellow-400 to-yellow-600",
-                    border: "border-yellow-200",
-                    text: "text-yellow-900",
-                    icon: <Trophy className="w-8 h-8 text-white drop-shadow-md" />,
+                    bg: "bg-amber-50",
+                    border: "border-amber-200",
+                    text: "text-amber-700",
+                    icon: <Trophy className="w-6 h-6 text-amber-500" />,
                     label: "Oro"
                 };
             case "silver":
                 return {
-                    bg: "bg-gradient-to-br from-slate-200 via-slate-300 to-slate-400",
-                    border: "border-slate-100",
-                    text: "text-slate-800",
-                    icon: <Medal className="w-8 h-8 text-white drop-shadow-md" />,
+                    bg: "bg-slate-50",
+                    border: "border-slate-200",
+                    text: "text-slate-600",
+                    icon: <Medal className="w-6 h-6 text-slate-400" />,
                     label: "Plata"
                 };
             case "bronze":
             default:
                 return {
-                    bg: "bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900",
-                    border: "border-amber-500",
-                    text: "text-amber-50",
-                    icon: <Award className="w-8 h-8 text-white drop-shadow-md" />,
+                    bg: "bg-orange-50",
+                    border: "border-orange-200",
+                    text: "text-orange-700",
+                    icon: <Award className="w-6 h-6 text-orange-500" />,
                     label: "Bronce"
                 };
         }
@@ -114,56 +115,85 @@ export function BadgesShowcase({ userId }: { userId: string }) {
         return Math.min((matches / 5) * 100, 100);
     };
 
+    const BadgeItem = ({ badge, idx }: { badge: BadgeData; idx?: number }) => {
+        const style = getBadgeStyle(badge.mastery_level);
+        const progress = calculateProgress(badge.mastery_level, badge.matches_won);
+
+        return (
+            <motion.div
+                initial={idx !== undefined ? { opacity: 0, scale: 0.95 } : false}
+                animate={idx !== undefined ? { opacity: 1, scale: 1 } : false}
+                transition={idx !== undefined ? { delay: idx * 0.05 } : undefined}
+                className={`relative overflow-hidden rounded-xl p-3 border ${style.bg} ${style.border} flex flex-col items-center text-center`}
+            >
+                <div className="mb-2 bg-white/60 p-2 rounded-full shadow-sm">
+                    {style.icon}
+                </div>
+                <h4 className={`font-semibold text-[11px] leading-tight mb-2 ${style.text} line-clamp-2 min-h-[28px] flex items-center`}>
+                    {badge.concept_name}
+                </h4>
+
+                <div className="w-full bg-black/5 rounded-full h-1 mt-auto">
+                    <div
+                        className="bg-current h-full rounded-full transition-all duration-1000 ease-out opacity-40"
+                        style={{ width: `${progress}%`, color: 'inherit' }}
+                    />
+                </div>
+                <span className={`text-[9px] uppercase font-bold tracking-wider mt-1 opacity-70 ${style.text}`}>
+                    {style.label}
+                </span>
+            </motion.div>
+        );
+    };
+
     return (
-        <div className="space-y-4">
+        <div className="space-y-3">
             <div className="flex justify-between items-center">
                 <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-2">
                     <Star className="w-4 h-4 text-yellow-500" />
-                    Vitrina de Trofeos
+                    Trofeos ({badges.length})
                 </h3>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {badges.slice(0, 6).map((badge, idx) => {
-                    const style = getBadgeStyle(badge.mastery_level);
-                    const progress = calculateProgress(badge.mastery_level, badge.matches_won);
-
-                    return (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.1 }}
-                            key={badge.concept_id}
-                            className={`relative overflow-hidden rounded-2xl p-4 shadow-sm border border-white/40 ${style.bg} hover:shadow-lg hover:-translate-y-1 transition-all duration-300`}
-                        >
-                            {/* Glassmorphism shine overlay */}
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-20 transform rotate-45 translate-x-12 -translate-y-12 blur-2xl pointer-events-none" />
-
-                            <div className="flex flex-col items-center text-center relative z-10">
-                                <div className="mb-2">
-                                    {style.icon}
-                                </div>
-                                <h4 className={`font-bold text-sm leading-tight mb-1 ${style.text} drop-shadow-sm line-clamp-2`}>
-                                    {badge.concept_name}
-                                </h4>
-
-                                <div className="w-full mt-2 bg-black/20 rounded-full h-1.5 backdrop-blur-sm overflow-hidden border border-black/10">
-                                    <div
-                                        className="bg-white h-full transition-all duration-1000 ease-out"
-                                        style={{ width: `${progress}%` }}
-                                    />
-                                </div>
-                                <p className={`text-[10px] uppercase font-bold tracking-wider mt-1.5 opacity-90 ${style.text}`}>
-                                    Nivel {style.label}
-                                </p>
-                            </div>
-                        </motion.div>
-                    );
-                })}
+            <div className="grid grid-cols-3 gap-2">
+                {badges.slice(0, 3).map((badge, idx) => (
+                    <BadgeItem key={`preview-${badge.concept_id}`} badge={badge} idx={idx} />
+                ))}
             </div>
-            {badges.length > 6 && (
-                <div className="text-center">
-                    <button className="text-xs text-indigo-600 font-semibold hover:underline">Ver todas tus {badges.length} medallas →</button>
+
+            {badges.length > 3 && (
+                <div className="text-center pt-1">
+                    <button
+                        onClick={() => setShowAll(true)}
+                        className="text-xs text-blue-600 font-medium hover:text-blue-800 transition-colors"
+                    >
+                        Ver las {badges.length} medallas →
+                    </button>
+                </div>
+            )}
+
+            {/* Modal to view all badges */}
+            {showAll && (
+                <div className="fixed inset-0 z-50 flex flex-col bg-white">
+                    <header className="bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm sticky top-0 z-10">
+                        <div className="flex items-center gap-2">
+                            <Trophy className="w-5 h-5 text-yellow-500" />
+                            <h2 className="font-bold text-gray-900">Tu Vitrina de Trofeos</h2>
+                        </div>
+                        <button
+                            onClick={() => setShowAll(false)}
+                            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        >
+                            ✕
+                        </button>
+                    </header>
+                    <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-w-4xl mx-auto pb-8">
+                            {badges.map((badge, idx) => (
+                                <BadgeItem key={`full-${badge.concept_id}`} badge={badge} idx={idx} />
+                            ))}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
