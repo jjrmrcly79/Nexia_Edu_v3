@@ -1,5 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +12,7 @@ import { ArrowLeft, BookOpen, CheckSquare, Dumbbell, Quote } from "lucide-react"
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import PracticeEngine from "@/components/PracticeEngine";
+import TopicSummaryModal from "@/components/TopicSummaryModal";
 
 // Mock data for MVP
 const MOCK_DATA = {
@@ -34,7 +38,62 @@ const MOCK_DATA = {
 
 export default function SkillPage() {
     const params = useParams();
-    // In real app, fetch data based on params.slug
+    const [skillId, setSkillId] = useState<string | null>(null);
+    const [correctAnswers, setCorrectAnswers] = useState<number>(0);
+    const [domainData, setDomainData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (params?.slug) {
+            async function fetchSkillData() {
+                setLoading(true);
+                // 1. Fetch full domain data
+                const { data: dData } = await supabase.rpc('get_domain_full_data_rpc', {
+                    _slug: params.slug
+                });
+
+                if (dData) {
+                    setDomainData(dData);
+
+                    // 2. Fetch skill ID if needed for TopicSummaryModal (fallback to domain ID)
+                    const { data: sData } = await supabase.rpc('get_skill_id_by_slug_rpc', {
+                        _slug: params.slug
+                    });
+
+                    if (sData && sData.length > 0) {
+                        setSkillId(sData[0].skill_id);
+                    }
+
+                    // 3. Fetch specific correct answers for this domain to mark checklist
+                    const { count } = await supabase
+                        .from('user_progress')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('user_id', 'juan-123')
+                        .eq('is_correct', true)
+                        .filter('item_id', 'in', `(select id from learning.items where domain_id = '${dData.id}')`);
+
+                    if (count !== null) {
+                        setCorrectAnswers(count);
+                    }
+                }
+                setLoading(false);
+            }
+            fetchSkillData();
+        }
+    }, [params?.slug]);
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center space-y-4">
+                    <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto" />
+                    <p className="text-gray-500 animate-pulse">Cargando material de estudio...</p>
+                </div>
+            </div>
+        );
+    }
+
+    const currentData = domainData || MOCK_DATA;
 
     return (
         <div className="min-h-screen bg-gray-50 pb-10">
@@ -46,16 +105,34 @@ export default function SkillPage() {
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
                     </Link>
-                    <h1 className="font-bold text-lg text-gray-900 truncate">{MOCK_DATA.title}</h1>
+                    <h1 className="font-bold text-lg text-gray-900 truncate">{currentData.title}</h1>
                 </div>
             </header>
 
             <main className="max-w-md mx-auto px-4 py-6 space-y-6">
 
                 {/* Intro */}
-                <div className="bg-blue-600 rounded-xl p-6 text-white shadow-lg">
-                    <h2 className="text-2xl font-bold mb-2">{MOCK_DATA.title}</h2>
-                    <p className="text-blue-100 text-sm leading-relaxed">{MOCK_DATA.description}</p>
+                <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm relative overflow-hidden">
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-3">
+                            <h2 className="text-xl font-bold text-gray-900 pr-2">{currentData.title}</h2>
+                            <TopicSummaryModal
+                                type={skillId ? "skill" : "concept"}
+                                id={skillId || currentData.id}
+                                contextData={currentData}
+                                trigger={
+                                    <Button variant="outline" size="sm" className="gap-2 shrink-0 text-blue-600 border-blue-100 hover:bg-blue-50">
+                                        <BookOpen className="h-4 w-4" />
+                                        <span className="hidden sm:inline">Lectura IA</span>
+                                        <span className="sm:hidden">IA</span>
+                                    </Button>
+                                }
+                            />
+                        </div>
+                        <ScrollArea className="h-[120px] w-full rounded-md pr-4">
+                            <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-wrap">{currentData.description}</p>
+                        </ScrollArea>
+                    </div>
                 </div>
 
                 {/* Content Tabs */}
@@ -71,10 +148,10 @@ export default function SkillPage() {
                     <TabsContent value="learn" className="space-y-4 mt-4">
                         <div className="flex items-center justify-between text-sm text-gray-500 px-1">
                             <span>Conceptos Clave</span>
-                            <span>3 items</span>
+                            <span>{currentData.concepts.length} items</span>
                         </div>
                         <Accordion type="single" collapsible className="w-full bg-white rounded-lg border px-2">
-                            {MOCK_DATA.concepts.map((c, i) => (
+                            {currentData.concepts.map((c: any, i: number) => (
                                 <AccordionItem value={`item-${i}`} key={i} className="border-b-0">
                                     <AccordionTrigger className="hover:no-underline font-medium text-gray-800">{c.title}</AccordionTrigger>
                                     <AccordionContent className="text-gray-600 text-sm pb-4">
@@ -89,37 +166,53 @@ export default function SkillPage() {
                     <TabsContent value="check" className="space-y-4 mt-4">
                         <div className="flex items-center justify-between text-sm text-gray-500 px-1">
                             <span>Lista de Verificación</span>
+                            <span className="font-medium bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs">
+                                {Math.min(correctAnswers, currentData.checklist.length)} / {currentData.checklist.length}
+                            </span>
                         </div>
                         <Card>
                             <CardContent className="pt-6 space-y-4">
-                                {MOCK_DATA.checklist.map((item, i) => (
-                                    <div key={i} className="flex items-start gap-3">
-                                        <div className="h-5 w-5 rounded border border-gray-300 flex-shrink-0 mt-0.5" />
-                                        <label className="text-sm text-gray-700 leading-snug">{item}</label>
-                                    </div>
-                                ))}
+                                {currentData.checklist.length > 0 ? (
+                                    currentData.checklist.map((item: string, i: number) => {
+                                        const isCompleted = i < correctAnswers;
+                                        return (
+                                            <div key={i} className={`flex items-start gap-3 transition-all ${isCompleted ? 'opacity-60' : ''}`}>
+                                                <div className={`h-5 w-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 ${isCompleted ? 'bg-green-500 text-white' : 'border border-gray-300'}`}>
+                                                    {isCompleted && <CheckSquare className="h-3.5 w-3.5" />}
+                                                </div>
+                                                <label className={`text-sm leading-snug ${isCompleted ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
+                                                    {item}
+                                                </label>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <p className="text-xs text-center text-gray-400 py-4 italic">No hay requisitos listados para este dominio.</p>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
 
                     {/* 3. Evidence */}
                     <TabsContent value="evidence" className="space-y-4 mt-4">
-                        {MOCK_DATA.evidence.map((ev, i) => (
-                            <Card key={i} className="bg-slate-50 border-slate-200">
-                                <CardContent className="pt-6">
-                                    <Quote className="h-8 w-8 text-blue-200 mb-2" />
-                                    <p className="text-sm text-gray-800 italic mb-3">"{ev.quote}"</p>
-                                    <p className="text-xs font-bold text-blue-700 uppercase tracking-wide">— {ev.source}</p>
-                                </CardContent>
-                            </Card>
-                        ))}
+                        {currentData.evidence?.length > 0 ? (
+                            currentData.evidence.map((ev: any, i: number) => (
+                                <Card key={i} className="bg-slate-50 border-slate-200">
+                                    <CardContent className="pt-6">
+                                        <Quote className="h-8 w-8 text-blue-200 mb-2" />
+                                        <p className="text-sm text-gray-800 italic mb-3">"{ev.quote}"</p>
+                                        <p className="text-xs font-bold text-blue-700 uppercase tracking-wide">— {ev.source}</p>
+                                    </CardContent>
+                                </Card>
+                            ))
+                        ) : (
+                            <p className="text-sm text-gray-500 text-center py-4">No hay referencias disponibles para este tema.</p>
+                        )}
                     </TabsContent>
 
                     {/* 4. Practice */}
                     <TabsContent value="practice" className="mt-4">
-                        <TabsContent value="practice" className="mt-4">
-                            <PracticeEngine domainSlug="flujo" />
-                        </TabsContent>
+                        <PracticeEngine domainSlug={params?.slug as string} />
                     </TabsContent>
 
                 </Tabs>

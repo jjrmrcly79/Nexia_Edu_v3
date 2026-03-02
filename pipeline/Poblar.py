@@ -242,10 +242,11 @@ def generate_items(chunks: list[dict]):
     prompt = (
         "Genera preguntas de evaluación (Items) basadas EXCLUSIVAMENTE en el texto.\n"
         "REGLAS:\n"
-        "1) Genera 3-5 preguntas tipo MCQ (Multiple Choice) o Case.\n"
-        "2) Deben probar 'knowledge_type' y 'cognitive_level'.\n"
-        "3) correct_answer debe ser el TEXTO de la opción correcta.\n"
-        "4) Solo si el texto da suficiente info.\n"
+        "1) Genera 3-5 preguntas tipo MCQ (Multiple Choice) o Case Study.\n"
+        "2) IMPORTANTE: TODOS los ítems (incluyendo Case Study) DEBEN tener un arreglo 'options' con 3 o 4 opciones de respuesta (opción múltiple).\n"
+        "3) Deben probar 'knowledge_type' y 'cognitive_level'.\n"
+        "4) correct_answer debe ser el TEXTO exacto de una de las opciones.\n"
+        "5) Solo si el texto da suficiente info.\n"
         f"CHUNKS:\n{json.dumps(pack, ensure_ascii=False)[:30000]}"
     )
     try:
@@ -338,10 +339,11 @@ def generate_items_from_concepts(concepts: list[dict]):
     prompt = (
         "Genera preguntas de evaluación (Items) basadas EXCLUSIVAMENTE en los conceptos provistos.\n"
         "REGLAS:\n"
-        "1) Genera 3 preguntas por cada concepto (1 MCQ Concept, 1 MCQ Apply, 1 Case).\n"
-        "2) Deben probar 'knowledge_type' y 'cognitive_level'.\n"
-        "3) correct_answer debe ser el TEXTO de la opción correcta.\n"
-        "4) Usa el 'concept_id' provisto para vincular.\n"
+        "1) Genera 3 preguntas por cada concepto (1 MCQ Concept, 1 MCQ Apply, 1 Case Study).\n"
+        "2) IMPORTANTE: TODOS los ítems (incluyendo Case Study) DEBEN tener un arreglo 'options' con 3 o 4 opciones de respuesta (opción múltiple).\n"
+        "3) Deben probar 'knowledge_type' y 'cognitive_level'.\n"
+        "4) correct_answer debe ser el TEXTO exacto de una de las opciones.\n"
+        "5) Usa el 'concept_id' provisto para vincular.\n"
         f"CONCEPTOS:\n{concepts_text}"
     )
     
@@ -540,8 +542,11 @@ def save_skills_tree(domain_slug: str, skills_data: list):
                 except:
                     pass # Ignore unique violations
 
-def run_skill_generation():
-    input_str = input("Enter domain slug (e.g. flujo, calidad) OR 'all' for every domain: ").strip().lower()
+def run_skill_generation(target_domain=None):
+    if target_domain:
+        input_str = target_domain.strip().lower()
+    else:
+        input_str = input("Enter domain slug (e.g. flujo, calidad) OR 'all' for every domain: ").strip().lower()
     
     domains_to_process = []
     if input_str == 'all':
@@ -568,10 +573,13 @@ def run_skill_generation():
 
 # ---------- 5. Item Generation from SKILLS ----------
 def get_skills_for_gen(domain_slug: str):
-    did = ensure_domain(domain_slug)
-    # Fetch skills for this domain
-    resp = sb.schema("learning").table("skills").select("*").eq("domain_id", did).execute()
-    return resp.data or []
+    # Use RPC to get only skills that need items (< 3 items)
+    try:
+        resp = sb.rpc("get_skills_needing_items_rpc", {"_domain_slug": domain_slug}).execute()
+        return resp.data or []
+    except Exception as e:
+        print(f"Error fetching skills for gen: {e}")
+        return []
 
 def generate_items_from_skills(domain_slug: str):
     skills = get_skills_for_gen(domain_slug)
@@ -594,9 +602,10 @@ def generate_items_from_skills(domain_slug: str):
             "CONTEXTO: El usuario debe demostrar que domina esta habilidad práctica.\n"
             "REGLAS:\n"
             "1) Genera 3 preguntas (1 Multiple Choice, 1 Case Study corto, 1 Scenario).\n"
-            "2) Deben probar 'Aplicar' o 'Analizar' (niveles cognitivos altos).\n"
-            "3) correct_answer debe ser el texto de la opción.\n"
-            "4) Usa el esquema JSON estándar.\n"
+            "2) IMPORTANTE: TODOS los items (incluyendo Case/Scenario) DEBEN tener 'options' (multiple choice).\n"
+            "3) Deben probar 'Aplicar' o 'Analizar' (niveles cognitivos altos).\n"
+            "4) correct_answer debe ser el texto EXACTO de una de las opciones.\n"
+            "5) Usa el esquema JSON estándar.\n"
         )
         
         # Reuse ITEMS_SCHEMA but we will manually inject skill_id later
@@ -609,13 +618,15 @@ def generate_items_from_skills(domain_slug: str):
             data = json.loads(resp.choices[0].message.content)
             
             # Save items linked to skill
+            # Save items linked to skill
             items = data.get("items", [])
+            saved_count = 0
             for item in items:
                 if item["confidence"] < 0.7: continue
                 try:
-                    did = ensure_domain(domain_slug) # Ensure domain ID again or reuse
+                    did = ensure_domain(domain_slug) 
                     sb.rpc("upsert_item_rpc", {
-                        "_skill_id": skill["id"], # LINKED TO SKILL!
+                        "_skill_id": skill["skill_id"], 
                         "_domain_id": did,
                         "_prompt": item["prompt"],
                         "_item_type": item["item_type"],
@@ -625,19 +636,23 @@ def generate_items_from_skills(domain_slug: str):
                         "_knowledge_type": item["knowledge_type"],
                         "_cognitive_level": item["cognitive_level"],
                         "_difficulty": item["difficulty"],
-                        "_concept_id": None # No specific concept link for now
+                        "_concept_id": None 
                     }).execute()
+                    saved_count += 1
                 except Exception as e:
                     print(f"  ! Err saving item: {e}")
             
-            print(f"  > Saved {len(items)} items for skill {skill['code']}.")
+            print(f"  > Saved {saved_count} items for skill {skill['code']}.")
             time.sleep(1) # Rate limit
             
         except Exception as e:
             print(f"  ! Error generating items for skill {skill['code']}: {e}")
 
-def run_items_from_skills():
-    input_str = input("Enter domain slug (e.g. flujo, calidad) OR 'all' for every domain: ").strip().lower()
+def run_items_from_skills(target_domain=None):
+    if target_domain:
+        input_str = target_domain.strip().lower()
+    else:
+       input_str = input("Enter domain slug (e.g. flujo, calidad) OR 'all' for every domain: ").strip().lower()
     
     domains_to_process = []
     if input_str == 'all':
@@ -655,19 +670,138 @@ def run_items_from_skills():
         print(f"\n--- Generating items from skills for: {domain} ---")
         generate_items_from_skills(domain)
 
-    print("\nItem generation process complete.")
+# ---------- 6. Domain Description Generation (Mode 5) ----------
+DOMAIN_KEYWORDS = {
+    "flujo": ["flujo", "flow", "continuo", "continuous", "one piece", "pieza a pieza", "lote unitario", "lead time"],
+    "calidad": ["calidad", "quality", "defecto", "jidoka", "poka yoke", "cero defectos", "autonomatización"],
+    "cambio-rapido": ["smed", "changeover", "cambio rápido", "single minute", "preparación", "setup"],
+    "pull": ["pull", "kanban", "jalar", "supermercado", "fifo", "just in time", "justo a tiempo"],
+    "estabilidad": ["5s", "estabilidad", "estándar", "standard", "visual", "orden", "limpieza"],
+    "liderazgo": ["liderazgo", "leadership", "hoshin", "kata", "gemba", "respeto", "retar"],
+    "mejora": ["mejora", "kaizen", "continuo", "pdca", "a3", "solución de problemas"],
+    "just-in-time": ["just in time", "jit", "justo a tiempo", "pull", "flujo", "takt time"],
+    "muda": ["muda", "desperdicio", "waste", "7 desperdicios", "valor agregado"],
+    "mura": ["mura", "variabilidad", "irregularidad", "desnivel", "fluctuación"],
+    "muri": ["muri", "sobrecarga", "estrés", "sobreesfuerzo", "ergonomía"],
+    "gemba": ["gemba", "genchi genbutsu", "piso de producción", "lugar real", "observación directa"],
+    "kaizen": ["kaizen", "mejora continua", "cambio bueno", "pdca", "pequeñas mejoras"],
+    "hoshin": ["hoshin", "hoshin kanri", "despliegue de políticas", "estrategia", "norte verdadero"]
+}
 
+def generate_domain_description(domain_slug: str):
+    print(f"Generating description for domain: {domain_slug}...")
+    
+    # 1. Check Keywords
+    keywords = DOMAIN_KEYWORDS.get(domain_slug, [domain_slug.replace("-", " ")])
+    
+    # 2. Fetch Relevant Chunks
+    # We construct a dynamic OR query for keywords
+    or_query = ",".join([f"contenido.ilike.%{k}%" for k in keywords])
+    
+    try:
+        # Fetch up to 15 chunks
+        resp = sb.table("documentos_certificacion").select("contenido").or_(or_query).limit(15).execute()
+        chunks = resp.data
+    except Exception as e:
+        print(f"  ! Error fetching chunks: {e}")
+        return
+
+    if not chunks:
+        print(f"  ! No documents found matching keywords: {keywords}")
+        return
+
+    print(f"  > Found {len(chunks)} relevant documents/chunks.")
+    combined_text = "\n---\n".join([c["contenido"][:1000] for c in chunks]) # Limit context window
+
+    # 3. Generate Description via LLM
+    prompt = (
+        f"Actúa como un profesor experto en Lean Manufacturing.\n"
+        f"Genera una descripción comprensiva, académica pero accesible para el Dominio: '{domain_slug.upper()}'.\n"
+        "REGLAS:\n"
+        "1) Usa EXCLUSIVAMENTE la información de los siguientes extractos de documentos certificados.\n"
+        "2) La descripción debe tener 2-3 párrafos.\n"
+        "3) Debe explicar QUÉ ES, POR QUÉ es importante y CÓMO se relaciona con la excelencia operacional.\n"
+        "4) No menciones 'según el texto'. Escribe como una definición definitiva.\n"
+        f"EXTRACTOS:\n{combined_text[:25000]}"
+    )
+    
+    try:
+        resp = ai.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "Educational content generator."}, {"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        description = resp.choices[0].message.content.strip()
+        
+        # 4. Update Database
+        sb.schema("learning").table("domains").update({"description": description}).eq("slug", domain_slug).execute()
+        print(f"  > Description updated successfully for '{domain_slug}'.")
+        print(f"  > Preview: {description[:100]}...")
+        
+    except Exception as e:
+        print(f"  ! Error generating/saving description: {e}")
+
+def run_domain_descriptions(target_domain=None):
+    if target_domain:
+         input_str = target_domain.strip().lower()
+    else:
+        input_str = input("Enter domain slug (e.g. flujo) OR 'all': ").strip().lower()
+
+    slugs = []
+    if input_str == 'all':
+        slugs = list(DOMAIN_KEYWORDS.keys())
+    else:
+        slugs = [input_str]
+        
+    for slug in slugs:
+        generate_domain_description(slug)
+
+
+import argparse
 
 if __name__ == "__main__":
-    # Choose mode
-    mode = input("Select Mode: (1) Process Chunks (2) Generate Items from Concepts (3) Generate Skill Tree (4) Generate Items from SKILLS: ")
-    if mode == "1":
-        run_pipeline()
-    elif mode == "2":
-        run_concepts_pipeline()
-    elif mode == "3":
-        run_skill_generation()
-    elif mode == "4":
-        run_items_from_skills()
+    parser = argparse.ArgumentParser(description="Nexia Edu Pipeline")
+    parser.add_argument("--mode", type=str, help="Pipeline mode (1-4)")
+    parser.add_argument("--target", type=str, help="Domain slug or 'all'", default="")
+    
+    args = parser.parse_args()
+    
+    if args.mode:
+        # Non-interactive mode
+        if args.mode == "1":
+            run_pipeline()
+        elif args.mode == "2":
+            run_concepts_pipeline()
+        elif args.mode == "3":
+            if args.target:
+                run_skill_generation(target_domain=args.target)
+            else:
+                print("Mode 3 requires --target (domain or 'all')")
+                exit(1)
+        elif args.mode == "4":
+            if args.target:
+                run_items_from_skills(target_domain=args.target)
+        elif args.mode == "4":
+            if args.target:
+                run_items_from_skills(target_domain=args.target)
+            else:
+                print("Mode 4 requires --target")
+                exit(1)
+        elif args.mode == "5":
+             run_domain_descriptions(target_domain=args.target)
+
     else:
-        print("Invalid mode")
+        # Interactive mode
+        mode = input("Select Mode:\n(1) Process Chunks\n(2) Generate Items from Concepts\n(3) Generate Skill Tree\n(4) Generate Items from SKILLS\n(5) Populate Domain Descriptions\n> ")
+        if mode == "1":
+            run_pipeline()
+        elif mode == "2":
+            run_concepts_pipeline()
+        elif mode == "3":
+            run_skill_generation()
+        elif mode == "4":
+            run_items_from_skills()
+        elif mode == "5":
+            run_domain_descriptions()
+        else:
+            print("Invalid mode")
