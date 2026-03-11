@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BarChart3, Settings, ShieldCheck, Construction } from "lucide-react";
+import { LayoutDashboard, BarChart3, Settings, ShieldCheck, Construction, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
     { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
+    { title: "User Progress", href: "/admin/users", icon: Users },
     { title: "Coverage Matrix", href: "/admin/coverage", icon: BarChart3 },
     { title: "Fill Gaps", href: "/admin/fill-gaps", icon: Construction },
     { title: "Settings", href: "/admin/settings", icon: Settings },
